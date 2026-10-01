@@ -1,0 +1,6 @@
+cryptography
+ascon
+pytest>=7.0
+simpy
+pandas
+matplotlib

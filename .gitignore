@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+iot-env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+
+# Simulation & benchmark outputs (large)
+*.pcap
+simulation/cupcarbon/*.log
+results/raw/*.csv
+results/processed/*.csv
+results/figures/*.png
+results/figures/*.pdf
+!results/raw/.gitkeep
+!results/processed/.gitkeep
+!results/figures/.gitkeep
