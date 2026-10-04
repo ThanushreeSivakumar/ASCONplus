@@ -13,19 +13,36 @@ from ascon_plus.handshake import (
     client_handshake,
     server_handshake,
 )
-from ascon_plus.kdf import derive_keys
-from ascon_plus.protocol import HandshakeMessage
-from ascon_plus.session import AsconSession, IntegrityError
+from ascon_plus.kdf import derive_keys, derive_session_keys
+from ascon_plus.protocol import (
+    HandshakeMessage,
+    FRAME_HELLO,
+    FRAME_HELLO_ACK,
+    FRAME_DATA,
+    FRAME_ERROR,
+    build_frame,
+    read_frame,
+    make_ad,
+)
+from ascon_plus.session import AsconSession, IntegrityError, NodeSession
 
 __all__ = [
     "AsconSession",
     "HandshakeError",
     "HandshakeMessage",
     "IntegrityError",
+    "NodeSession",
     "PendingClientHandshake",
     "client_handshake",
     "derive_keys",
+    "derive_session_keys",
     "make_auth_tag",
     "server_handshake",
-    "verify_auth_tag",
+    "FRAME_HELLO",
+    "FRAME_HELLO_ACK",
+    "FRAME_DATA",
+    "FRAME_ERROR",
+    "build_frame",
+    "read_frame",
+    "make_ad",
 ]

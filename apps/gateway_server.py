@@ -1,147 +1,262 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ASCON+ Gateway Server
-======================
+ASCON+ Gateway Server (Stage 2 — asyncio TCP)
+===============================================
 
-Concurrent TCP server that accepts sensor-node connections, performs
-PSK-authenticated handshakes, and manages a session table.
+Concurrent TCP server using ``asyncio.start_server``.  Handles many
+sensor nodes concurrently via per-connection coroutines.
 
-Configuration via environment variables:
-  GATEWAY_HOST   — bind address (default: 0.0.0.0)
-  GATEWAY_PORT   — listen port (default: 9000)
-  PSK            — pre-shared key (default: demo value)
+Frame wire format (big-endian)::
 
-Usage:
-  python apps/gateway_server.py
+    len(2) | type(1) | node_id(2) | seq(4) | nonce(16) | ciphertext+tag
+
+Usage::
+
+    python apps/gateway_server.py [--host 0.0.0.0] [--port 9000]
 """
 
+from __future__ import annotations
+
+import argparse
+import asyncio
+import csv
+import logging
 import os
-import socket
 import struct
 import sys
-import threading
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ascon_plus import server_handshake, HandshakeMessage, HandshakeError
+from cryptography.hazmat.primitives.asymmetric.x25519 import (
+    X25519PrivateKey,
+    X25519PublicKey,
+)
+
+from ascon_plus.kdf import derive_session_keys
+from ascon_plus.protocol import (
+    FRAME_HELLO,
+    FRAME_HELLO_ACK,
+    FRAME_DATA,
+    FRAME_ERROR,
+    PUBKEY_LEN,
+    build_frame,
+    read_frame,
+)
+from ascon_plus.session import NodeSession
+
+log = logging.getLogger("gateway")
+
+# ── CSV logger ───────────────────────────────────────────────────────────────
+
+CSV_DIR = os.path.join(os.path.dirname(__file__), "..", "results", "raw")
+CSV_PATH = os.path.join(CSV_DIR, "gateway_decrypt.csv")
+
+_csv_lock = asyncio.Lock() if hasattr(asyncio, "Lock") else None  # set in main
+
+
+def _ensure_csv() -> None:
+    """Create CSV directory and header if not present."""
+    os.makedirs(CSV_DIR, exist_ok=True)
+    if not os.path.exists(CSV_PATH):
+        with open(CSV_PATH, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["node_id", "seq", "payload_len", "decrypt_ns"])
+
+
+async def _log_csv(node_id: int, seq: int, payload_len: int, ns: int) -> None:
+    """Append one row to the decrypt-timing CSV (async-safe)."""
+    global _csv_lock
+    if _csv_lock is None:
+        _csv_lock = asyncio.Lock()
+    async with _csv_lock:
+        with open(CSV_PATH, "a", newline="") as f:
+            csv.writer(f).writerow([node_id, seq, payload_len, ns])
 
 
 # ── Session table ────────────────────────────────────────────────────────────
 
 class SessionTable:
-    """Thread-safe registry of active node sessions."""
+    """In-memory registry of active node sessions."""
 
     def __init__(self) -> None:
-        self._sessions: dict[bytes, object] = {}
-        self._lock = threading.Lock()
+        self._sessions: dict[int, NodeSession] = {}
 
-    def add(self, node_id: bytes, session: object) -> None:
-        with self._lock:
-            self._sessions[node_id] = session
-            print(f"[gw] Session added for {node_id!r} (total: {len(self._sessions)})")
+    def put(self, node_id: int, session: NodeSession) -> None:
+        self._sessions[node_id] = session
+        log.info("Session added for node %d (total: %d)",
+                 node_id, len(self._sessions))
 
-    def remove(self, node_id: bytes) -> None:
-        with self._lock:
-            self._sessions.pop(node_id, None)
+    def get(self, node_id: int) -> NodeSession | None:
+        return self._sessions.get(node_id)
+
+    def remove(self, node_id: int) -> None:
+        self._sessions.pop(node_id, None)
 
     @property
     def count(self) -> int:
-        with self._lock:
-            return len(self._sessions)
+        return len(self._sessions)
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Per-connection handler ───────────────────────────────────────────────────
 
-def _send_msg(sock: socket.socket, data: bytes) -> None:
-    sock.sendall(struct.pack(">I", len(data)) + data)
-
-
-def _recv_msg(sock: socket.socket) -> bytes:
-    raw_len = _recvall(sock, 4)
-    if not raw_len:
-        raise ConnectionError("Connection closed")
-    length = struct.unpack(">I", raw_len)[0]
-    return _recvall(sock, length)
-
-
-def _recvall(sock: socket.socket, n: int) -> bytes:
-    buf = bytearray()
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
-            raise ConnectionError("Connection closed mid-receive")
-        buf.extend(chunk)
-    return bytes(buf)
-
-
-# ── Client handler ───────────────────────────────────────────────────────────
-
-SERVER_ID = b"gateway-01"
-
-
-def handle_client(
-    conn: socket.socket,
-    addr: tuple,
-    sessions: SessionTable,
-    psk: bytes,
+async def _send_error(
+    writer: asyncio.StreamWriter, node_id: int, msg: str,
 ) -> None:
-    """Handle a single client connection: handshake then receive loop."""
+    """Send an ERROR frame and log it."""
+    frame = build_frame(FRAME_ERROR, node_id, 0, msg.encode())
+    writer.write(frame)
+    await writer.drain()
+
+
+async def handle_connection(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    sessions: SessionTable,
+) -> None:
+    """Handle a single node connection: handshake → receive loop."""
+    peer = writer.get_extra_info("peername")
+    node_id = 0  # until HELLO arrives
     try:
-        # ── Handshake ────────────────────────────────────────────────────
-        hello_bytes = _recv_msg(conn)
-        client_hello, _ = HandshakeMessage.from_bytes(hello_bytes)
+        # ── Wait for HELLO ───────────────────────────────────────────────
+        ftype, nid, seq, _nonce, payload = await read_frame(reader)
+        node_id = nid
 
-        reply, session = server_handshake(SERVER_ID, client_hello, psk=psk)
-        _send_msg(conn, reply.to_bytes())
+        if ftype != FRAME_HELLO:
+            log.warning("[%s] Expected HELLO, got type %d", peer, ftype)
+            await _send_error(writer, node_id, "expected HELLO")
+            return
 
-        node_id = f"node@{addr[0]}:{addr[1]}".encode()
-        sessions.add(node_id, session)
-        print(f"[gw] Handshake with {addr} complete")
+        if len(payload) != PUBKEY_LEN:
+            log.warning("[%s] Bad HELLO pubkey length %d", peer, len(payload))
+            await _send_error(writer, node_id, "bad pubkey length")
+            return
+
+        client_pub = payload
+        log.info("[%s] HELLO from node %d", peer, node_id)
+
+        # ── Generate server keypair and derive keys ──────────────────────
+        session = await _do_handshake(writer, node_id, client_pub)
+        sessions.put(node_id, session)
+        log.info("[%s] Handshake complete for node %d", peer, node_id)
 
         # ── Receive loop ─────────────────────────────────────────────────
         while True:
-            ct = _recv_msg(conn)
-            pt = session.open(ct, sender_node_id=node_id)
-            print(f"[gw] ← {addr}: {pt.decode(errors='replace')}")
+            ftype, nid, seq, nonce, payload = await read_frame(reader)
 
-    except (ConnectionError, OSError) as e:
-        print(f"[gw] {addr} disconnected: {e}")
-    except HandshakeError as e:
-        print(f"[gw] {addr} handshake failed: {e}")
+            if ftype == FRAME_HELLO:
+                # Rekey: new handshake on the same connection
+                if len(payload) != PUBKEY_LEN:
+                    log.warning("[%s] Bad rekey HELLO pubkey", peer)
+                    continue
+                client_pub = payload
+                session = await _do_handshake(writer, nid, client_pub)
+                sessions.put(nid, session)
+                node_id = nid
+                log.info("[%s] Rekeyed node %d", peer, node_id)
+                continue
+
+            if ftype != FRAME_DATA:
+                log.warning("[%s] Unexpected frame type %d", peer, ftype)
+                continue
+
+            # Check current session matches node_id
+            cur = sessions.get(nid)
+            if cur is None:
+                log.warning("[%s] DATA for unknown node %d", peer, nid)
+                continue
+
+            # Replay check
+            if cur.is_replay(seq):
+                log.warning("[%s] Replay detected: node=%d seq=%d (last=%d)",
+                            peer, nid, seq, cur.last_seq)
+                continue
+
+            # Decrypt + time
+            t0 = time.perf_counter_ns()
+            pt = cur.decrypt(nid, seq, nonce, payload)
+            elapsed = time.perf_counter_ns() - t0
+
+            if pt is None:
+                log.warning("[%s] AEAD failed: node=%d seq=%d", peer, nid, seq)
+                continue
+
+            cur.advance(seq)
+            await _log_csv(nid, seq, len(pt), elapsed)
+            log.debug("[%s] node=%d seq=%d len=%d dt=%dns",
+                      peer, nid, seq, len(pt), elapsed)
+
+    except (asyncio.IncompleteReadError, ConnectionError, OSError) as exc:
+        log.info("[%s] node=%d disconnected: %s", peer, node_id, exc)
+    except Exception as exc:
+        log.error("[%s] node=%d unexpected error: %s", peer, node_id, exc,
+                  exc_info=True)
     finally:
-        conn.close()
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _do_handshake(
+    writer: asyncio.StreamWriter,
+    node_id: int,
+    client_pub_bytes: bytes,
+) -> NodeSession:
+    """Generate server keypair, send HELLO_ACK, derive session keys."""
+    server_priv = X25519PrivateKey.generate()
+    server_pub = server_priv.public_key().public_bytes_raw()
+
+    client_pub_obj = X25519PublicKey.from_public_bytes(client_pub_bytes)
+    shared_secret = server_priv.exchange(client_pub_obj)
+
+    c2s, s2c = derive_session_keys(shared_secret, client_pub_bytes, server_pub)
+
+    ack = build_frame(FRAME_HELLO_ACK, node_id, 0, server_pub)
+    writer.write(ack)
+    await writer.drain()
+
+    return NodeSession(key_c2s=c2s, key_s2c=s2c)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def main() -> None:
-    host = os.environ.get("GATEWAY_HOST", "0.0.0.0")
-    port = int(os.environ.get("GATEWAY_PORT", "9000"))
-    psk  = os.environ.get("PSK", "demo-psk-change-in-production").encode()
+async def run_server(host: str = "0.0.0.0", port: int = 9000) -> None:
+    """Start the gateway server (call from ``asyncio.run``)."""
+    global _csv_lock
+    _csv_lock = asyncio.Lock()
+    _ensure_csv()
 
     sessions = SessionTable()
 
-    print(f"[gw] ASCON+ Gateway Server starting on {host}:{port}")
+    async def cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
+        await handle_connection(r, w, sessions)
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind((host, port))
-        srv.listen(50)
-        print(f"[gw] Listening... (Ctrl+C to stop)")
+    server = await asyncio.start_server(cb, host, port)
+    addrs = [s.getsockname() for s in server.sockets]
+    log.info("ASCON+ Gateway listening on %s", addrs)
 
-        try:
-            while True:
-                conn, addr = srv.accept()
-                print(f"[gw] New connection from {addr}")
-                t = threading.Thread(
-                    target=handle_client,
-                    args=(conn, addr, sessions, psk),
-                    daemon=True,
-                )
-                t.start()
-        except KeyboardInterrupt:
-            print(f"\n[gw] Shutting down ({sessions.count} active sessions)")
+    async with server:
+        await server.serve_forever()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="ASCON+ Gateway Server")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=9000)
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    try:
+        asyncio.run(run_server(args.host, args.port))
+    except KeyboardInterrupt:
+        log.info("Shutting down")
 
 
 if __name__ == "__main__":
