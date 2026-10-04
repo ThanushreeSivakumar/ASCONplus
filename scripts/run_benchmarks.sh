@@ -11,17 +11,31 @@ cd "$(dirname "$0")/.."
 echo "=== ASCON+ Benchmark Suite ==="
 echo ""
 
+# Use venv if present, otherwise system python
+if [ -d "venv" ]; then
+    source venv/bin/activate
+elif [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
+
+PYTHON=${PYTHON:-python3}
+ITERS=${ITERS:-100}
+
 echo "[1/4] Crypto benchmark (handshake + seal/open per payload size)..."
-python benchmarks/bench_crypto.py
+$PYTHON benchmarks/bench_crypto.py --iters $ITERS
 
 echo "[2/4] Memory benchmark (tracemalloc / VmRSS)..."
-python benchmarks/bench_memory.py
+$PYTHON benchmarks/bench_memory.py
 
 echo "[3/4] End-to-end latency benchmark..."
-python benchmarks/bench_e2e.py
+$PYTHON benchmarks/bench_e2e.py --iters $ITERS
 
 echo "[4/4] Analysing results and generating plots..."
-python benchmarks/analyze.py
+if $PYTHON -c "import pandas" 2>/dev/null; then
+    $PYTHON benchmarks/analyze.py
+else
+    echo "  [skip] pandas not installed, skipping analyze.py"
+fi
 
 echo ""
 echo "=== All benchmarks complete. Results in results/ ==="

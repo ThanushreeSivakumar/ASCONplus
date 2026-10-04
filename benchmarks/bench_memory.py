@@ -1,78 +1,206 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Benchmark: memory usage via tracemalloc.
+bench_memory.py — Memory usage: baseline vs ecdh_ascon.
 
-Measures peak and current memory for:
-  - Handshake
-  - Session with N sealed messages
-  - Outputs CSV to results/raw/bench_memory.csv
+Each scenario (baseline handshake+encrypt, ecdh handshake+encrypt) runs
+in a fresh subprocess.  The subprocess reads VmRSS and VmHWM from
+``/proc/self/status`` before and after, or falls back to ``psutil`` /
+``tracemalloc`` on non-Linux systems.
+
+Repeat 20 times per method.
+Output: results/raw/memory_<hostname>.csv
 """
 
+from __future__ import annotations
+
 import csv
+import json
 import os
+import platform
+import subprocess
 import sys
-import tracemalloc
+import textwrap
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ascon_plus import client_handshake, server_handshake
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results", "raw")
+REPEATS = 20
 
-PSK = b"benchmark-psk"
-CLIENT_ID = b"bench-client"
-SERVER_ID = b"bench-server"
+# ── Subprocess scripts ──────────────────────────────────────────────────────
+
+_BASELINE_SCRIPT = textwrap.dedent(r"""
+import json, os, sys, platform
+sys.path.insert(0, os.path.join(os.path.dirname(__file__) if __file__ != "<string>" else ".", ".."))
+
+def _read_proc_mem():
+    try:
+        with open("/proc/self/status") as f:
+            info = {}
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    info["rss_kb"] = int(line.split()[1])
+                elif line.startswith("VmHWM:"):
+                    info["hwm_kb"] = int(line.split()[1])
+            return info
+    except FileNotFoundError:
+        # Windows / macOS fallback via tracemalloc approximation
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            return {"rss_kb": 0, "hwm_kb": 0}
+        cur, peak = tracemalloc.get_traced_memory()
+        return {"rss_kb": cur // 1024, "hwm_kb": peak // 1024}
+
+def _read_rss_portable():
+    try:
+        return _read_proc_mem()
+    except Exception:
+        return {"rss_kb": 0, "hwm_kb": 0}
+
+import tracemalloc
+tracemalloc.start()
+
+before = _read_rss_portable()
+
+from baseline.plaintext_key_baseline import baseline_keygen, baseline_encrypt
+key = baseline_keygen()
+for _ in range(10):
+    baseline_encrypt(key, b"x" * 128)
+
+after = _read_rss_portable()
+_, peak_traced = tracemalloc.get_traced_memory()
+tracemalloc.stop()
+
+# Merge: prefer /proc if available, else use tracemalloc peak
+if after["hwm_kb"] == 0:
+    after["hwm_kb"] = peak_traced // 1024
+
+print(json.dumps({"before": before, "after": after}))
+""")
+
+_ECDH_SCRIPT = textwrap.dedent(r"""
+import json, os, sys, platform
+sys.path.insert(0, os.path.join(os.path.dirname(__file__) if __file__ != "<string>" else ".", ".."))
+
+def _read_proc_mem():
+    try:
+        with open("/proc/self/status") as f:
+            info = {}
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    info["rss_kb"] = int(line.split()[1])
+                elif line.startswith("VmHWM:"):
+                    info["hwm_kb"] = int(line.split()[1])
+            return info
+    except FileNotFoundError:
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            return {"rss_kb": 0, "hwm_kb": 0}
+        cur, peak = tracemalloc.get_traced_memory()
+        return {"rss_kb": cur // 1024, "hwm_kb": peak // 1024}
+
+def _read_rss_portable():
+    try:
+        return _read_proc_mem()
+    except Exception:
+        return {"rss_kb": 0, "hwm_kb": 0}
+
+import tracemalloc
+tracemalloc.start()
+
+before = _read_rss_portable()
+
+import ascon
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from ascon_plus.kdf import derive_session_keys
+
+# Handshake
+client_priv = X25519PrivateKey.generate()
+client_pub = client_priv.public_key().public_bytes_raw()
+server_priv = X25519PrivateKey.generate()
+server_pub = server_priv.public_key().public_bytes_raw()
+shared = client_priv.exchange(server_priv.public_key())
+c2s, s2c = derive_session_keys(shared, client_pub, server_pub)
+
+# Encrypt
+for _ in range(10):
+    nonce = os.urandom(16)
+    ascon.encrypt(key=c2s, nonce=nonce, associateddata=b"ad",
+                  plaintext=b"x" * 128, variant="Ascon-128")
+
+after = _read_rss_portable()
+_, peak_traced = tracemalloc.get_traced_memory()
+tracemalloc.stop()
+
+if after["hwm_kb"] == 0:
+    after["hwm_kb"] = peak_traced // 1024
+
+print(json.dumps({"before": before, "after": after}))
+""")
 
 
-def measure_handshake() -> dict:
-    tracemalloc.start()
-    hello, pending = client_handshake(CLIENT_ID, psk=PSK)
-    reply, srv = server_handshake(SERVER_ID, hello, psk=PSK)
-    cli = pending.complete(reply)
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    return {"operation": "handshake", "current_kb": current / 1024, "peak_kb": peak / 1024}
+# ── Runner ───────────────────────────────────────────────────────────────────
+
+def _run_subprocess(script: str, cwd: str) -> dict:
+    """Run a Python script in a fresh subprocess and parse its JSON output."""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True, text=True, timeout=30,
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        print(f"  [warn] subprocess failed:\n{result.stderr}", file=sys.stderr)
+        return {"before": {"rss_kb": 0, "hwm_kb": 0},
+                "after": {"rss_kb": 0, "hwm_kb": 0}}
+    # Extract last line (may have import warnings before)
+    for line in reversed(result.stdout.strip().split("\n")):
+        line = line.strip()
+        if line.startswith("{"):
+            return json.loads(line)
+    return {"before": {"rss_kb": 0, "hwm_kb": 0},
+            "after": {"rss_kb": 0, "hwm_kb": 0}}
 
 
-def measure_session(n_messages: int) -> dict:
-    hello, pending = client_handshake(CLIENT_ID, psk=PSK)
-    reply, srv = server_handshake(SERVER_ID, hello, psk=PSK)
-    cli = pending.complete(reply)
-
-    tracemalloc.start()
-    payload = os.urandom(128)
-    for _ in range(n_messages):
-        ct = cli.seal(payload)
-        srv.open(ct, sender_node_id=CLIENT_ID)
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    return {
-        "operation": f"session_{n_messages}_msgs",
-        "current_kb": current / 1024,
-        "peak_kb": peak / 1024,
-    }
+def _collect_env_is_pi() -> str:
+    try:
+        with open("/proc/device-tree/model") as f:
+            return str("Raspberry Pi" in f.read())
+    except FileNotFoundError:
+        return "False"
 
 
 def main() -> None:
-    print("ASCON+ Memory Benchmark\n")
+    hostname = platform.node()
+    csv_path = os.path.join(RESULTS_DIR, f"memory_{hostname}.csv")
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    cwd = os.path.join(os.path.dirname(__file__), "..")
+    is_pi = _collect_env_is_pi()
 
-    rows = []
+    rows: list[tuple] = []
 
-    r = measure_handshake()
-    print(f"  Handshake     : current={r['current_kb']:.1f} KB, peak={r['peak_kb']:.1f} KB")
-    rows.append(r)
+    print(f"bench_memory: {REPEATS} repeats per method, host={hostname}\n")
 
-    for n in [10, 100, 1000]:
-        r = measure_session(n)
-        print(f"  Session ({n:>4} msgs) : current={r['current_kb']:.1f} KB, peak={r['peak_kb']:.1f} KB")
-        rows.append(r)
+    for run in range(REPEATS):
+        # Baseline
+        data = _run_subprocess(_BASELINE_SCRIPT, cwd)
+        b, a = data["before"], data["after"]
+        rows.append(("baseline", run,
+                      b["rss_kb"], a["rss_kb"], a["hwm_kb"], is_pi))
+        print(f"  [baseline] run {run}: RSS {b['rss_kb']}→{a['rss_kb']} KB, HWM {a['hwm_kb']} KB")
 
-    out = os.path.join(os.path.dirname(__file__), "..", "results", "raw", "bench_memory.csv")
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["operation", "current_kb", "peak_kb"])
-        w.writeheader()
+        # ECDH+ASCON
+        data = _run_subprocess(_ECDH_SCRIPT, cwd)
+        b, a = data["before"], data["after"]
+        rows.append(("ecdh_ascon", run,
+                      b["rss_kb"], a["rss_kb"], a["hwm_kb"], is_pi))
+        print(f"  [ecdh]     run {run}: RSS {b['rss_kb']}→{a['rss_kb']} KB, HWM {a['hwm_kb']} KB")
+
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["method", "run", "rss_before_kb", "rss_after_kb", "hwm_kb", "is_pi"])
         w.writerows(rows)
-    print(f"\n  Results → {out}")
+
+    print(f"\n  Results → {csv_path}  ({len(rows)} rows)")
 
 
 if __name__ == "__main__":
