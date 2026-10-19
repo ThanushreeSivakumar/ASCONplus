@@ -32,5 +32,6 @@ results/processed/*.csv
 results/figures/*.png
 results/figures/*.pdf
 !results/raw/.gitkeep
+!results/raw/cupcarbon_manual.csv
 !results/processed/.gitkeep
 !results/figures/.gitkeep

@@ -265,7 +265,7 @@ def main() -> None:
         w.writerow(["method", "op", "side", "payload_len", "iter", "ns", "is_pi"])
         w.writerows(rows)
 
-    print(f"\n  Results → {csv_path}  ({len(rows)} rows)")
+    print(f"\n  Results -> {csv_path}  ({len(rows)} rows)")
 
 
 if __name__ == "__main__":

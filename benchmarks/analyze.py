@@ -63,7 +63,7 @@ def _pi_warning(df: pd.DataFrame, label: str) -> None:
     if "is_pi" in df.columns:
         non_pi = df[df["is_pi"].astype(str).str.strip().str.lower() != "true"]
         if len(non_pi) > 0:
-            print(f"  ⚠  WARNING: {label} contains data NOT from a Raspberry Pi!")
+            print(f"  WARNING: {label} contains data NOT from a Raspberry Pi!")
 
 
 def _stats_us(series: pd.Series) -> dict:
@@ -165,13 +165,13 @@ def plot_handshake(crypto_df: pd.DataFrame, e2e_df: pd.DataFrame | None) -> None
 
     for bar, m in zip(bars, means):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                f"{m:.0f} µs", ha="center", va="bottom", fontsize=9)
+                f"{m:.0f} us", ha="center", va="bottom", fontsize=9)
 
     os.makedirs(FIGS, exist_ok=True)
     fig.savefig(os.path.join(FIGS, "handshake_time.png"),
                 dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  → {os.path.join(FIGS, 'handshake_time.png')}")
+    print(f"  -> {os.path.join(FIGS, 'handshake_time.png')}")
 
 
 def plot_encrypt_decrypt(crypto_df: pd.DataFrame) -> None:
@@ -214,7 +214,7 @@ def plot_encrypt_decrypt(crypto_df: pd.DataFrame) -> None:
     fig.savefig(os.path.join(FIGS, "encrypt_decrypt_time.png"),
                 dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  → {os.path.join(FIGS, 'encrypt_decrypt_time.png')}")
+    print(f"  -> {os.path.join(FIGS, 'encrypt_decrypt_time.png')}")
 
 
 def plot_memory(mem_df: pd.DataFrame) -> None:
@@ -242,7 +242,7 @@ def plot_memory(mem_df: pd.DataFrame) -> None:
     fig.savefig(os.path.join(FIGS, "memory_rss_delta.png"),
                 dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  → {os.path.join(FIGS, 'memory_rss_delta.png')}")
+    print(f"  -> {os.path.join(FIGS, 'memory_rss_delta.png')}")
 
 
 # ── Summary markdown ────────────────────────────────────────────────────────
@@ -272,7 +272,18 @@ def write_summary(
     combined = pd.concat(all_frames, ignore_index=True)
     csv_path = os.path.join(PROC, "summary.csv")
     combined.to_csv(csv_path, index=False)
-    print(f"  → {csv_path}")
+    print(f"  -> {csv_path}")
+
+    def _df_to_md(df: pd.DataFrame) -> str:
+        try:
+            return df.to_markdown(index=False)
+        except Exception:
+            cols = [str(c) for c in df.columns]
+            res = ["| " + " | ".join(cols) + " |"]
+            res.append("| " + " | ".join(["---"] * len(cols)) + " |")
+            for _, r in df.iterrows():
+                res.append("| " + " | ".join(str(val) for val in r) + " |")
+            return "\n".join(res)
 
     md_path = os.path.join(PROC, "summary.md")
     with open(md_path, "w", encoding="utf-8") as f:
@@ -280,22 +291,22 @@ def write_summary(
 
         if crypto_df is not None:
             f.write("## Crypto Benchmarks\n\n")
-            f.write(crypto_df.to_markdown(index=False))
+            f.write(_df_to_md(crypto_df))
             f.write("\n\n")
 
         if e2e_df is not None:
             f.write("## End-to-End Handshake Latency\n\n")
-            f.write(e2e_df.to_markdown(index=False))
+            f.write(_df_to_md(e2e_df))
             f.write("\n\n")
 
         if mem_df is not None:
             f.write("## Memory Usage\n\n")
-            f.write(mem_df.to_markdown(index=False))
+            f.write(_df_to_md(mem_df))
             f.write("\n\n")
 
         f.write(SUMMARY_NOTE)
 
-    print(f"  → {md_path}")
+    print(f"  -> {md_path}")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────

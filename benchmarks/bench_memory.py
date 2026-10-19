@@ -31,7 +31,7 @@ REPEATS = 20
 
 _BASELINE_SCRIPT = textwrap.dedent(r"""
 import json, os, sys, platform
-sys.path.insert(0, os.path.join(os.path.dirname(__file__) if __file__ != "<string>" else ".", ".."))
+sys.path.insert(0, os.path.abspath("."))
 
 def _read_proc_mem():
     try:
@@ -80,7 +80,7 @@ print(json.dumps({"before": before, "after": after}))
 
 _ECDH_SCRIPT = textwrap.dedent(r"""
 import json, os, sys, platform
-sys.path.insert(0, os.path.join(os.path.dirname(__file__) if __file__ != "<string>" else ".", ".."))
+sys.path.insert(0, os.path.abspath("."))
 
 def _read_proc_mem():
     try:
@@ -186,21 +186,21 @@ def main() -> None:
         b, a = data["before"], data["after"]
         rows.append(("baseline", run,
                       b["rss_kb"], a["rss_kb"], a["hwm_kb"], is_pi))
-        print(f"  [baseline] run {run}: RSS {b['rss_kb']}→{a['rss_kb']} KB, HWM {a['hwm_kb']} KB")
+        print(f"  [baseline] run {run}: RSS {b['rss_kb']}->{a['rss_kb']} KB, HWM {a['hwm_kb']} KB")
 
         # ECDH+ASCON
         data = _run_subprocess(_ECDH_SCRIPT, cwd)
         b, a = data["before"], data["after"]
         rows.append(("ecdh_ascon", run,
                       b["rss_kb"], a["rss_kb"], a["hwm_kb"], is_pi))
-        print(f"  [ecdh]     run {run}: RSS {b['rss_kb']}→{a['rss_kb']} KB, HWM {a['hwm_kb']} KB")
+        print(f"  [ecdh]     run {run}: RSS {b['rss_kb']}->{a['rss_kb']} KB, HWM {a['hwm_kb']} KB")
 
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["method", "run", "rss_before_kb", "rss_after_kb", "hwm_kb", "is_pi"])
         w.writerows(rows)
 
-    print(f"\n  Results → {csv_path}  ({len(rows)} rows)")
+    print(f"\n  Results -> {csv_path}  ({len(rows)} rows)")
 
 
 if __name__ == "__main__":
