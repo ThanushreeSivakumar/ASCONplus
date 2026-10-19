@@ -1,3 +1,5 @@
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -10,7 +12,7 @@ Generates CupCarbon simulation scenarios with a star topology:
 Conforms to CupCarbon Klaines 8.2 project structure and file format.
 
 Usage:
-    python simulation/cupcarbon/generate_scenarios.py --n-list 5 10 25
+    python simulation/cupcarbon/generate_scenarios.py --n-list 5 10 25 50
 """
 
 import argparse
@@ -18,6 +20,7 @@ import math
 import os
 import shutil
 import sys
+import time
 from typing import Dict, List, Optional, Tuple
 
 # Earth radius in meters used by CupCarbon (utilities.MapCalc)
@@ -145,38 +148,50 @@ def compute_star_sensor_coordinates(
     return coords
 
 
-def robust_clean_dir(target_dir: str) -> None:
-    """Robustly clean or remove directory handling Windows/OneDrive file locking."""
-    if not os.path.exists(target_dir):
+def safe_rmtree(path: str, max_retries: int = 5, delay: float = 0.2) -> None:
+    """Robustly remove a directory tree on Windows, handling file locks and read-only attributes."""
+    if not os.path.exists(path):
         return
 
-    # Try standard rmtree with error handler to reset file permissions
-    def _handle_remove_readonly(func, path, exc):
+    def on_exc(func, fpath, exc_info):
         try:
-            os.chmod(path, 0o777)
-            func(path)
+            os.chmod(fpath, 0o777)
+        except Exception:
+            pass
+        try:
+            func(fpath)
         except Exception:
             pass
 
-    try:
-        shutil.rmtree(target_dir, onexc=_handle_remove_readonly)
-    except Exception:
-        # If directory cannot be deleted (e.g. OneDrive locked folder handle),
-        # clear its contents recursively instead of failing
-        for root, dirs, files in os.walk(target_dir, topdown=False):
-            for name in files:
-                fpath = os.path.join(root, name)
+    for attempt in range(max_retries):
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(path, onexc=on_exc)
+            else:
+                shutil.rmtree(path, onerror=on_exc)
+            return
+        except OSError:
+            if attempt == max_retries - 1:
+                # Fallback: traverse and attempt removing individual elements
+                for root, dirs, files in os.walk(path, topdown=False):
+                    for f in files:
+                        try:
+                            fp = os.path.join(root, f)
+                            os.chmod(fp, 0o777)
+                            os.remove(fp)
+                        except Exception:
+                            pass
+                    for d in dirs:
+                        try:
+                            os.rmdir(os.path.join(root, d))
+                        except Exception:
+                            pass
                 try:
-                    os.chmod(fpath, 0o777)
-                    os.remove(fpath)
+                    os.rmdir(path)
                 except Exception:
                     pass
-            for name in dirs:
-                dpath = os.path.join(root, name)
-                try:
-                    os.rmdir(dpath)
-                except Exception:
-                    pass
+                return
+            time.sleep(delay)
 
 
 def generate_scenario(
@@ -194,11 +209,14 @@ def generate_scenario(
     project_path = os.path.join(output_dir, project_name)
 
     # 1. Idempotent cleanup: overwrite project directory
-    robust_clean_dir(project_path)
+    if os.path.exists(project_path):
+        safe_rmtree(project_path)
 
     # 2. Create directory structure
     for subdir in CUPCARBON_SUBDIRS:
         os.makedirs(os.path.join(project_path, subdir), exist_ok=True)
+    open(os.path.join(project_path, "logs", "log.txt"), "a", encoding="utf-8").close()
+    open(os.path.join(project_path, "results", "wisen_simulation.csv"), "a", encoding="utf-8").close()
 
     # 3. Create project file <project_name>.cup
     template_cup_path = os.path.join(template_dir, "template.cup")
@@ -491,8 +509,8 @@ def main():
         "--n-list",
         nargs="+",
         type=int,
-        default=[5, 10, 25],
-        help="List of sensor counts for scenarios (default: 5 10 25)",
+        default=[5, 10, 25, 50],
+        help="List of sensor counts for scenarios (default: 5 10 25 50)",
     )
     parser.add_argument(
         "--template",

@@ -386,7 +386,8 @@ simulation/
     └── scenarios/
         ├── star_5/
         ├── star_10/
-        └── star_25/
+        ├── star_25/
+        └── star_50/
 ```
 
 - **`simulation/queue_model/gateway_sim.py`**  
@@ -395,7 +396,7 @@ simulation/
   - Evaluates queueing latency, queue length progression, p95/p99 delays, and saturation throughput across different network loads.
 - **`simulation/cupcarbon/generate_scenarios.py`**  
   A Python 3 standard-library scenario generator cloning the project format of **CupCarbon Klaines 8.2**:
-  - Automatically synthesizes complete CupCarbon simulation project directories for star topologies: 1 Gateway + $N$ Sensors ($N \in \{5, 10, 25\}$).
+  - Automatically synthesizes complete CupCarbon simulation project directories for star topologies: 1 Gateway + $N$ Sensors ($N \in \{5, 10, 25, 50\}$).
   - Accurately computes geographic coordinates: Gateway at template origin (`25.3080° N, 55.4425° E`), sensors evenly positioned along a circle with radius 50.0 m (well within the ZigBee 100.0 m radio range) using great-circle Haversine trigonometry.
   - Replicates CupCarbon node configs (`config/nodes/sensor_<id>`, `config/nodes/basestation_<id>`), radio parameters (`config/sensor_radios/`), SenScript routines (`scripts/sensor.csc`, `scripts/gateway.csc`), and Python IoT scripts (`scripts/sensor.py`, `scripts/gateway.py`).
   - Idempotent and self-validating: runs internal integrity checks and prints pass/fail reports.
@@ -408,6 +409,7 @@ simulation/
   - **`star_5/`**: Complete 6-node network project (1 gateway `G` + 5 sensors `S1..S5`).
   - **`star_10/`**: Complete 11-node network project (1 gateway `G` + 10 sensors `S1..S10`).
   - **`star_25/`**: Complete 26-node network project (1 gateway `G` + 25 sensors `S1..S25`).
+  - **`star_50/`**: Complete 51-node network project (1 gateway `G` + 50 sensors `S1..S50`).
   *Each project folder contains the full CupCarbon directory hierarchy (`agents/`, `config/nodes/`, `config/sensor_radios/`, `gps/`, `logs/`, `natevents/`, `network/`, `results/`, `scripts/`, `tmp/`, `xbee/`, and `<scenario>.cup`) and opens directly in the CupCarbon simulator.*
 
 ---
@@ -475,7 +477,7 @@ The test suite contains **45 comprehensive automated tests**, all of which pass:
 5. **Network Simulation & Scalability Models**:
    - Implemented `simulation/queue_model/gateway_sim.py` evaluating gateway queue dynamics under Poisson traffic loads using SimPy.
    - Reverse-engineered CupCarbon Klaines 8.2 engine internals and implemented `simulation/cupcarbon/generate_scenarios.py`.
-   - Successfully generated and validated complete CupCarbon star topology projects for 5, 10, and 25 nodes (`star_5/`, `star_10/`, `star_25/`) positioned within 50 meters of the central gateway.
+   - Successfully generated and validated complete CupCarbon star topology projects for 5, 10, 25, and 50 nodes (`star_5/`, `star_10/`, `star_25/`, `star_50/`) positioned within 50 meters of the central gateway.
    - Validated CupCarbon scenario projects using native Java classpath invocation (`device.DeviceList.open()` and `initForSimulation()`), confirming 0 errors.
 6. **Testing & Quality Assurance**:
    - Developed 45 automated unit and integration tests across 5 test modules.
@@ -508,7 +510,7 @@ python apps/node_client.py --node-id 1 --host 127.0.0.1 --port 9000 --count 20 -
 
 ### Generate CupCarbon Simulation Scenarios
 ```bash
-python simulation/cupcarbon/generate_scenarios.py --n-list 5 10 25
+python simulation/cupcarbon/generate_scenarios.py --n-list 5 10 25 50
 ```
 
 ### Run the Discrete-Event Queueing Model

@@ -1,0 +1,19 @@
+CupCarbon v. Klaines 8.2
+----------------
+name:star_50
+zoom:2
+centerposition_la:25.308037979296657
+centerposition_lo:55.44253706932068
+map:1
+display_details:true
+draw_radio_links:true
+draw_sensor_arrows:true
+radio_links_color:2
+draw_marker_arrows:false
+display_rl_distance:false
+propagation:false
+display_marker_distance:false
+display_radio_messages:true
+draw_script_file_name:true
+display_print_messages:true
+display_all_routes:false
