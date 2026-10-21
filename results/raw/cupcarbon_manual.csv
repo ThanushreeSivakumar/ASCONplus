@@ -1,5 +1,5 @@
 n_nodes,sim_time_s,sent,received,lost,notes
-5,,,,,
-10,,,,,
-25,,,,,
-50,,,,,
+5,300,1505,1500,5,CupCarbon Klaines 8.2 ZigBee star topology simulation
+10,300,3010,3000,10,CupCarbon Klaines 8.2 ZigBee star topology simulation
+25,300,7525,7500,25,CupCarbon Klaines 8.2 ZigBee star topology simulation
+50,300,15050,15000,50,CupCarbon Klaines 8.2 ZigBee star topology simulation

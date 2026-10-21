@@ -2,7 +2,7 @@ List of radio Modules for the Sensor0
 ------------------------------------------
 current_radio_name:radio1
 radio_standard:ZigBee
-radio_my:0
+radio_my:1
 radio_channel:0
 radio_network_id:13108
 radio_radius:100.0

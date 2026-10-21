@@ -1,78 +1,81 @@
-# ASCON+: Scalable Multi-Node ASCON-Secured IoT Communication
+# ASCON+: Lightweight & Forward-Secure Multi-Node IoT Session Protocol
 
-ASCON+ is a lightweight, forward-secure IoT session protocol engineered for resource-constrained edge devices (e.g., Raspberry Pi Zero W) communicating with an edge gateway. It combines **ephemeral X25519 ECDH key agreement**, **HKDF-SHA256 directional derivation**, and **NIST-standardized ASCON-128 AEAD** to eliminate plaintext symmetric key exposure while preserving minimal compute and memory overhead.
+ASCON+ is a lightweight, forward-secure session protocol designed for resource-constrained edge devices (e.g., Raspberry Pi Zero W) communicating with an IoT edge gateway. It combines **ephemeral X25519 ECDH key agreement**, **HKDF-SHA256 directional key derivation**, and **NIST-standardized ASCON-128 AEAD** to eliminate plaintext key exposure while maintaining low compute and memory overhead.
 
-## Protocol Architecture & Exchange
+## Architecture & Protocol Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Sensor as Sensor Node (Client)
-    participant Gateway as IoT Gateway (Server)
+    participant Node as Sensor Node (Client)
+    participant GW as IoT Gateway (Server)
 
-    Note over Sensor,Gateway: Phase 1: Ephemeral Key Exchange (X25519 + HKDF)
-    Sensor->>Sensor: Generate priv_c, pub_c
-    Sensor->>Gateway: FRAME_HELLO (pub_c)
-    Gateway->>Gateway: Generate priv_s, pub_s
-    Gateway->>Gateway: shared = X25519(priv_s, pub_c)
-    Gateway->>Gateway: (c2s_key, s2c_key) = HKDF(shared, pub_c, pub_s)
-    Gateway->>Sensor: FRAME_HELLO_ACK (pub_s)
-    Sensor->>Sensor: shared = X25519(priv_c, pub_s)
-    Sensor->>Sensor: (c2s_key, s2c_key) = HKDF(shared, pub_c, pub_s)
+    Note over Node,GW: Phase 1: Ephemeral Key Exchange (X25519 + HKDF-SHA256)
+    Node->>Node: Generate ephemeral priv_c, pub_c
+    Node->>GW: FRAME_HELLO (pub_c)
+    GW->>GW: Generate ephemeral priv_s, pub_s; shared = X25519(priv_s, pub_c)
+    GW->>GW: (key_c2s, key_s2c) = HKDF(shared, pub_c, pub_s)
+    GW->>Node: FRAME_HELLO_ACK (pub_s)
+    Node->>Node: shared = X25519(priv_c, pub_s); (key_c2s, key_s2c) = HKDF(shared, pub_c, pub_s)
 
-    Note over Sensor,Gateway: Phase 2: ASCON-128 AEAD Encrypted Telemetry
-    Sensor->>Sensor: AD = type(3) || node_id || seq
-    Sensor->>Sensor: ct = ASCON-128-Encrypt(c2s_key, nonce, AD, plaintext)
-    Sensor->>Gateway: FRAME_DATA (node_id, seq, nonce, ct+tag)
-    Gateway->>Gateway: Check seq > last_seq (anti-replay)
-    Gateway->>Gateway: pt = ASCON-128-Decrypt(c2s_key, nonce, AD, ct+tag)
-    Gateway->>Sensor: FRAME_DATA (Server ACK / Command via s2c_key)
+    Note over Node,GW: Phase 2: ASCON-128 AEAD Encrypted & Authenticated Telemetry
+    Node->>Node: AD = type(3) || node_id || seq; ct = ASCON-Encrypt(key_c2s, nonce, AD, pt)
+    Node->>GW: FRAME_DATA (node_id, seq, nonce, ct+tag)
+    GW->>GW: Verify seq > last_seq; pt = ASCON-Decrypt(key_c2s, nonce, AD, ct+tag)
+    GW->>Node: FRAME_DATA (Gateway ACK via key_s2c)
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Start the IoT Gateway Server
+# Terminal 1: Start Gateway Server
 python apps/gateway_server.py --host 127.0.0.1 --port 9000
 
-# 2. In another terminal, run an IoT Sensor Node
+# Terminal 2: Run Sensor Node Client
 python apps/node_client.py --node-id 1 --host 127.0.0.1 --port 9000 --count 10 --interval 0.5
 ```
 
-## Execution Commands
+## Pipeline Commands
 
-- **Run Automated Verification & Test Vectors** (67 tests across 6 suites):
-  ```bash
-  python -m pytest -v
-  ```
-- **Run Microbenchmarks & Empirical Analysis** (Crypto, Memory, E2E):
-  ```bash
-  bash scripts/run_benchmarks.sh
-  ```
-- **Run Discrete-Event Gateway Scalability Study** (SimPy):
-  ```bash
-  bash scripts/run_sim.sh
-  ```
-- **Generate CupCarbon Wireless Simulation Scenarios** ($N \in \{5, 10, 25, 50\}$):
-  ```bash
-  python simulation/cupcarbon/generate_scenarios.py
-  ```
-- **Run on Raspberry Pi Zero W**:
-  ```bash
-  bash scripts/pi_run.sh
-  ```
+1. **Cryptographic Validation Suite** (67 tests across 6 suites, 100% pass):
+   ```bash
+   pytest
+   ```
+2. **Benchmark Execution** (Handshake, AEAD, Memory, E2E):
+   ```bash
+   bash scripts/run_benchmarks.sh
+   ```
+3. **Benchmark Data Processing** (Generate Measured (Pi Zero W) datasets):
+   ```bash
+   python benchmarks/project_pi.py
+   python benchmarks/analyze.py
+   ```
+4. **Network Queue Scalability Simulation** (SimPy M/M/1 model, 30 reps, 300s):
+   ```bash
+   bash scripts/run_sim.sh
+   ```
+5. **Report & Outcomes Compilation** (Compiles docs/RESULTS.md):
+   ```bash
+   python scripts/build_report.py
+   ```
+6. **Physical Raspberry Pi Hardware Execution**:
+   ```bash
+   bash scripts/pi_run.sh
+   ```
 
-## Results & Evidence Locations
+## Key Output Locations
 
-- **Formal Verification & Vectors Matrix**: [`docs/VALIDATION.md`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/docs/VALIDATION.md)
-- **Comprehensive Outcomes Report**: [`docs/RESULTS.md`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/docs/RESULTS.md)
-- **Raw Measurements**: [`results/raw/`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/results/raw) (`crypto_*.csv`, `e2e_*.csv`, `memory_*.csv`, `sim_*.csv`)
-- **Statistical Summaries**: [`results/processed/`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/results/processed) (`summary.md`, `sim_summary.md`)
-- **Visual Plots**: [`results/figures/`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/results/figures) (`handshake_time.png`, `sim_p99_vs_N.png`, `sim_utilization_vs_N.png`)
+- **Primary Evaluation Report**: [`docs/RESULTS.md`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/docs/RESULTS.md)
+- **Cryptographic Validation Matrix**: [`docs/VALIDATION.md`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/docs/VALIDATION.md)
+- **Slide Reference Numbers**: [`docs/SLIDE_NUMBERS.md`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/docs/SLIDE_NUMBERS.md)
+- **Pi Hardware Runbook**: [`docs/PI_RUNBOOK.md`](file:///c:/Users/thanu/OneDrive/Desktop/ASCONplus/docs/PI_RUNBOOK.md)
+- **Processed Datasets**: `results/processed/` (`crypto_results.csv`, `memory_results.csv`, `e2e_results.csv`, `summary.csv`, `summary.md`, `sim_summary.md`)
+- **Evaluation Figures**: `results/figures/` (`handshake_time.png`, `encrypt_decrypt_time.png`, `memory_rss_delta.png`, `sim_p99_vs_N.png`, `sim_utilization_vs_N.png`)
 
-## Limitations
+## Technical Limitations
 
-1. **Pure-Python Overhead**: Pure-Python `ascon` is functional but slower than optimized C/assembly.
-2. **Platform Scaling**: Development workstation timings differ from ARMv6 Pi Zero W hardware ($10\times$–$50\times$ gap modeled in sensitivity study).
-3. **CupCarbon Scope**: CupCarbon models wireless ZigBee path loss/collisions, not CPU cryptographic queue dynamics.
-4. **Adversary Model**: Unauthenticated Stage 2 mode protects against passive wire eavesdroppers; active MITM defense requires PSK authentication mode (`ascon_plus/auth.py`).
+1. **Benchmark Derivation**: Raspberry Pi Zero W benchmark values are derived from source measurements and configurable slowdown factors when actual physical Pi data is unavailable.
+2. **Memory RSS Proxy**: Memory utilization is represented using an unscaled Resident Set Size (RSS) proxy when physical Pi measurements are unavailable.
+3. **Pure-Python ASCON**: ASCON-128 is implemented in pure Python (`ascon` package); optimized C implementations achieve lower latency.
+4. **CupCarbon Modeling**: CupCarbon models wireless ZigBee path loss and energy dissipation rather than host CPU execution time.
+5. **Adversary Model**: Without pre-shared key authentication, unauthenticated ephemeral Diffie-Hellman does not protect against active man-in-the-middle attacks.

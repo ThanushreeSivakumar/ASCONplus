@@ -262,11 +262,12 @@ def generate_scenario(
         "// CupCarbon SenScript for Sensor Node\n"
         "// Sends one message to the gateway every 1 simulated second\n"
         "loop\n"
-        "send \"DATA\" 0\n"
+        "send \"DATA\" 0 1\n"
         "delay 1000\n"
     )
     gateway_csc = (
         "// CupCarbon SenScript for Gateway\n"
+        "atmy 1\n"
         "loop\n"
         "receive x\n"
         "print x\n"
@@ -276,7 +277,7 @@ def generate_scenario(
         "# CupCarbon IoT Python Script for Sensor Node\n"
         "from cup_functions import *\n\n"
         "while True:\n"
-        "    cup_send(\"DATA\", 0)\n"
+        "    cup_send(\"DATA\", \"0 1\")\n"
         "    cup_wait(1)\n"
     )
     gateway_py = (
@@ -324,7 +325,7 @@ def generate_scenario(
         "------------------------------------------\n"
         "current_radio_name:radio1\n"
         "radio_standard:ZigBee\n"
-        "radio_my:0\n"
+        "radio_my:1\n"
         "radio_channel:0\n"
         "radio_network_id:13108\n"
         f"radio_radius:{radio_range}\n"
