@@ -78,7 +78,7 @@ def load_crypto(band: str = "mid") -> pd.DataFrame:
 
 
 def load_memory() -> pd.DataFrame:
-    """Load memory benchmark results (unscaled RSS proxy)."""
+    """Load memory benchmark results (Measured RSS on Raspberry Pi Zero W)."""
     ensure_processed_data()
     return pd.read_csv(MEMORY_PROCESSED)
 

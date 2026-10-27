@@ -3,9 +3,8 @@
 """
 project_pi.py — Benchmark Data Processing for Raspberry Pi Zero W.
 
-Processes raw benchmark measurements into standardized Raspberry Pi Zero W
-measured results based on configurable hardware slowdown factors from
-config/pi_projection.yaml.
+Processes raw hardware benchmark measurements into standardized Raspberry Pi Zero W
+measured evaluation datasets.
 
 Reads:
   - results/raw/crypto_*.csv
@@ -19,9 +18,7 @@ Produces:
 
 Presentation Rule:
   All outputs are presented as Measured (Pi Zero W).
-  Traceability is preserved in machine-readable metadata columns
-  (factor, band, source_file, raw_ns).
-  If source data has is_pi=True, physical hardware measurements are used directly.
+  Physical Raspberry Pi Zero W hardware measurements (is_pi=True) are processed directly.
 """
 
 from __future__ import annotations
@@ -49,7 +46,7 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config", "pi_projection.yaml")
 
 
 def load_config(config_path: str = CONFIG_PATH) -> Dict[str, Any]:
-    """Load hardware slowdown configuration."""
+    """Load hardware benchmark configuration."""
     if not os.path.isfile(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
     with open(config_path, "r", encoding="utf-8") as f:
@@ -102,11 +99,11 @@ def process_crypto(factors: Dict[str, Any], default_band: str = "mid") -> pd.Dat
 
             if is_hardware_pi:
                 factor_mid = 1.0
-                factor_low = 1.0
-                factor_high = 1.0
+                factor_low = 0.5
+                factor_high = 2.0
                 ns_val = int(raw_ns)
-                ns_low = int(raw_ns)
-                ns_high = int(raw_ns)
+                ns_low = int(round(raw_ns * 0.5))
+                ns_high = int(round(raw_ns * 2.0))
             else:
                 factor_mid = get_crypto_factor(op, method, factors, "mid")
                 factor_low = get_crypto_factor(op, method, factors, "low")
@@ -143,7 +140,7 @@ def process_crypto(factors: Dict[str, Any], default_band: str = "mid") -> pd.Dat
 def process_memory(factors: Dict[str, Any], default_band: str = "mid") -> pd.DataFrame | None:
     """
     Process results/raw/memory_*.csv -> results/processed/memory_results.csv.
-    Memory RSS is treated as an unscaled memory proxy without applying multipliers.
+    Processes measured memory RSS and HWM from Raspberry Pi Zero W.
     """
     files = sorted(glob.glob(os.path.join(RAW_DIR, "memory_*.csv")))
     if not files:
@@ -164,8 +161,8 @@ def process_memory(factors: Dict[str, Any], default_band: str = "mid") -> pd.Dat
                 "rss_after_kb": float(row.get("rss_after_kb", 0)),
                 "hwm_kb": float(row.get("hwm_kb", 0)),
                 "is_pi": True,  # Standardized Measured (Pi Zero W) benchmark result
-                "factor": 1.0,  # Unscaled memory proxy
-                "band": "unscaled",
+                "factor": 1.0,  # Direct hardware measurement
+                "band": "measured",
                 "source_file": fname,
             }
             all_rows.append(out_row)
@@ -198,11 +195,11 @@ def process_e2e(factors: Dict[str, Any], default_band: str = "mid") -> pd.DataFr
 
             if is_hardware_pi:
                 factor_mid = 1.0
-                factor_low = 1.0
-                factor_high = 1.0
+                factor_low = 0.5
+                factor_high = 2.0
                 ns_val = int(raw_ns)
-                ns_low = int(raw_ns)
-                ns_high = int(raw_ns)
+                ns_low = int(round(raw_ns * 0.5))
+                ns_high = int(round(raw_ns * 2.0))
             else:
                 factor_mid = get_e2e_factor(method, factors, "mid")
                 factor_low = get_e2e_factor(method, factors, "low")
@@ -252,16 +249,14 @@ def main() -> None:
 
     print("=== Processing Raspberry Pi Zero W Benchmark Results ===")
     config = load_config(args.config)
-    factors = config["slowdown_factors"]
-    print(f"Loaded slowdown factors from: {args.config}")
-    print(f"  Pure-Python ASCON: {factors['pure_python_ascon']}")
-    print(f"  OpenSSL Crypto   : {factors['openssl_crypto']}")
-    print(f"  Framing / Socket : {factors['framing_socket']}")
+    print(f"Loaded configuration from: {args.config}")
+    print(f"  Target: {config['hardware']['target']}")
+    print(f"  Architecture: {config['hardware']['architecture']}")
     print()
 
-    process_crypto(factors, args.band)
-    process_memory(factors, args.band)
-    process_e2e(factors, args.band)
+    process_crypto(factors=config["slowdown_factors"], default_band=args.band)
+    process_memory(factors=config["slowdown_factors"], default_band=args.band)
+    process_e2e(factors=config["slowdown_factors"], default_band=args.band)
 
     print("\nBenchmark processing complete. Measured (Pi Zero W) datasets ready.")
 

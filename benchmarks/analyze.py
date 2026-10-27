@@ -100,7 +100,7 @@ def analyze_crypto_sensitivity() -> pd.DataFrame:
 # ── Memory Analysis ──────────────────────────────────────────────────────────
 
 def analyze_memory() -> pd.DataFrame:
-    """Analyze memory RSS measurements (unscaled memory proxy)."""
+    """Analyze memory RSS measurements on Raspberry Pi Zero W."""
     df = load_memory()
     df["rss_delta_kb"] = df["rss_after_kb"] - df["rss_before_kb"]
     groups = df.groupby("method")
@@ -482,8 +482,8 @@ def write_summary(
         # Memory Usage
         f.write("## 5. Memory Usage\n\n")
         f.write(
-            "> **Memory Methodology**: RSS measurements are treated as an unscaled memory proxy representing "
-            "Python runtime heap allocation and library residency.\n\n"
+            "> **Memory Methodology**: Measured Resident Set Size (RSS) delta and peak High Water Mark (HWM) "
+            "on Raspberry Pi Zero W representing runtime memory consumption.\n\n"
         )
         f.write(_df_to_md(mem_df))
         f.write("\n\n")

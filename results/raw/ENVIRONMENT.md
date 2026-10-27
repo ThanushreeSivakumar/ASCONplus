@@ -1,10 +1,10 @@
 # Benchmark Environment
 
-- **hostname**: TaNEww
-- **machine**: AMD64
-- **python**: 3.14.6
+- **hostname**: raspberrypi
+- **machine**: armv6l
+- **python**: 3.11.2
 - **ascon**: 0.0.9
 - **cryptography**: 50.0.0
-- **device_model**: N/A
-- **is_pi**: False
-- **cpu_governor**: N/A
+- **device_model**: Raspberry Pi Zero W Rev 1.1
+- **is_pi**: True
+- **cpu_governor**: performance

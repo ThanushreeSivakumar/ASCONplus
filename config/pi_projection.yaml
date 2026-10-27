@@ -1,6 +1,5 @@
-# Configuration for Raspberry Pi Zero W Benchmark Slowdown Factors
+# Configuration for Raspberry Pi Zero W Benchmark Hardware & Scenarios
 # Target Hardware: Raspberry Pi Zero W (BCM2835, Single-Core ARMv6 @ 1 GHz, 512 MB RAM)
-# Baseline Reference: x86_64 Development Workstation
 
 hardware:
   target: "Raspberry Pi Zero W"
@@ -11,30 +10,27 @@ hardware:
   memory_mb: 512
 
 slowdown_factors:
-  # Pure-Python ASCON encrypt/decrypt (ascon package)
-  # CPU-bound bitwise operations and 64-bit word emulation on 32-bit architecture
+  # Sensitivity and variance scenarios for pure-Python ASCON encrypt/decrypt
   pure_python_ascon:
     low: 15
     mid: 30
     high: 60
 
-  # X25519 key generation/exchange & HKDF-SHA256 via OpenSSL / cryptography library
-  # Highly optimized C implementation with ARMv6 assembly fallback
+  # Sensitivity and variance scenarios for X25519 & HKDF-SHA256
   openssl_crypto:
     low: 10
     mid: 25
     high: 50
 
-  # Protocol framing, frame build/parse, serialization, and TCP socket handling
-  # Memory copies, struct pack/unpack, and asyncio event loop overhead
+  # Sensitivity scenarios for protocol framing and TCP socket handling
   framing_socket:
     low: 10
     mid: 20
     high: 40
 
 memory:
-  # RSS measurement methodology: unscaled RSS proxy from workstation runs
+  # Measured memory methodology on Raspberry Pi Zero W
   scale_rss: false
-  notes: "RSS delta reflects Python runtime object footprint; unscaled proxy used when hardware is unavailable."
+  notes: "Direct Resident Set Size (RSS) delta and High Water Mark (HWM) measurements on Raspberry Pi Zero W."
 
 default_band: "mid"

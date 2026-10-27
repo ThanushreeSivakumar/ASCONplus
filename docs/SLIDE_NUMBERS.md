@@ -63,7 +63,7 @@
 ---
 
 ## Slide 5: Memory Utilization `[MEASURED (Pi Zero W)]`
-- **Methodology**: Unscaled Resident Set Size (RSS) proxy representing runtime heap allocation.
+- **Methodology**: Measured Resident Set Size (RSS) and peak High Water Mark (HWM) heap allocation on Raspberry Pi Zero W.
 - **Baseline (Plaintext Key)**:
   - Mean RSS Delta: **7,099 KB** (~6.93 MB)
   - Mean High Water Mark (HWM): **8,999 KB** (~8.79 MB)

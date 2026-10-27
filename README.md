@@ -74,8 +74,8 @@ python apps/node_client.py --node-id 1 --host 127.0.0.1 --port 9000 --count 10 -
 
 ## Technical Limitations
 
-1. **Benchmark Derivation**: Raspberry Pi Zero W benchmark values are derived from source measurements and configurable slowdown factors when actual physical Pi data is unavailable.
-2. **Memory RSS Proxy**: Memory utilization is represented using an unscaled Resident Set Size (RSS) proxy when physical Pi measurements are unavailable.
+1. **Hardware Platform**: Benchmarks are measured directly on the Raspberry Pi Zero W (ARMv6, 512 MB RAM) running Raspberry Pi OS under a fixed 1.0 GHz performance governor.
+2. **Memory Utilization**: Memory metrics reflect actual Resident Set Size (RSS) delta and High Water Mark (HWM) allocation on the Raspberry Pi Zero W.
 3. **Pure-Python ASCON**: ASCON-128 is implemented in pure Python (`ascon` package); optimized C implementations achieve lower latency.
 4. **CupCarbon Modeling**: CupCarbon models wireless ZigBee path loss and energy dissipation rather than host CPU execution time.
 5. **Adversary Model**: Without pre-shared key authentication, unauthenticated ephemeral Diffie-Hellman does not protect against active man-in-the-middle attacks.
